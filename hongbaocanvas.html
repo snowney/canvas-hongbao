@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0,initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="renderer" content="webkit">
+    <title>红包 Canvas</title>
+    <style type="text/css">
+		body {
+			margin: 0;
+			background-color: rgba(0,5,24,1);
+		}
+
+		.fps {
+	        width: 200px;
+	        position: absolute;
+	        left: 100px;
+	        top: 100px;
+	        
+	        background-color: rgba(0, 0, 0, 0);
+
+	        color: red;
+	    }
+    </style>
+</head>
+
+<body>
+    <canvas id="myCanvas" style="position:absolute;left:0;top:0;z-index:5;"></canvas>
+    <div class="fps"><span id="fps"></span></div>
+    <script type="text/javascript">
+
+    var canvas = document.querySelector('#myCanvas'),
+    	ctx = canvas.getContext('2d'),
+    	fps = document.querySelector('#fps'),
+    	W = 500,
+    	H = 500,
+    	hongbaos = [],
+    	deadIndexs = [];
+
+    var raf = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.oRequestAnimationFrame || window.msRequestAnimationFrame || function(callback) {
+        window.setTimeout(callback, 1000 / 60);
+    };
+
+    function initCanvas(){
+    	W = window.innerWidth;
+    	H = window.innerHeight;
+
+    	canvas.width = W;
+    	canvas.height = H;
+    }
+
+    function getRandom(min, max) {
+        return (Math.random() * (max - min) + min) ;  // |0 是取整
+    }
+
+
+    function initAnimation(){
+    	initCanvas();
+    	drawBg();
+    	drawColorBar();
+    	animate();
+    }
+    //窗口改变重新初始化
+    window.addEventListener('resize', function(e){
+        initCanvas();
+    }, false);
+
+    var point = {};
+    point.isClick = false;
+
+    //待优化 分成PC(click)与移动(touch) 
+    canvas.addEventListener('click', function(e){
+    	var x = e.clientX,
+    		y = e.clientY;
+
+    	point.x = x;
+    	point.y = y;
+        if(point.startTime != null) {
+            if(Date.now() - point.startTime > 200) {
+                point.isClick = false;
+            } else {
+                point.isClick = true;
+            }
+        } else {
+            point.isClick = true;
+        }
+    	
+    }, false);
+
+    canvas.addEventListener('mousedown', function(e){
+    	point.startTime = Date.now();
+    }, false)
+
+    var cleanTime = Date.now(),
+    	lastTime = Date.now(),
+    	counts = 0;
+    function animate() {
+        counts++;
+        var newTime = new Date();
+        /* 
+         * 统计帧率
+         */
+        if(newTime - cleanTime > (500 - (W - 1000) / 3) ) {//根据宽度调整频率
+            fps.innerHTML = Math.round((1000 * counts) / (newTime - cleanTime));
+            counts = 0;
+            cleanTime = newTime;
+        }
+
+        if ((newTime - lastTime) > 1000) {
+            var x = getRandom(0, W),
+            	y = 0,
+            	speedX = getRandom(1, 5),
+            	speedY = getRandom(1, 5),
+            	width = getRandom(30, 70),
+            	index = -1,
+            	angle = getRandom(-45, 45);
+            	hongbao = null;
+
+            if(deadIndexs.length > 0) {
+            	index = deadIndexs.shift();
+            	hongbao =  hongbaos[index];
+            	hongbao.x = x;
+            	hongbao.y = y;
+            	hongbao.width = width;
+            	hongbao.height = 2 * width;
+            	if(x < (W / 2)) {
+            		hongbao.speedX = speedX;
+            	} else {
+            		hongbao.speedX = -speedX;
+            	}
+            	
+            	hongbao.speedY = speedY;
+            	hongbao.dead = false;
+            	hongbao.reuse = true;
+            	hongbao.alpha = 1;
+            	hongbao.scale = 0;
+            	this.angle = angle;
+            	hongbao.booms.length = 0;
+            } else {
+            	hongbao = new Hongbao(x, y, width, angle, speedX, speedY);
+            	hongbaos.push(hongbao)
+            }
+            lastTime = newTime;
+        }
+
+     
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+        stars.forEach(function(item) {
+            item.paint();
+        });
+        colorBars.forEach(function(item){
+        	item.moveTo();
+        });
+        //console.log(hongbaos.length)
+        hongbaos.forEach(function(item, index) {
+        	var counts = 0;
+            if (!item.dead) {
+                item._move();
+            } else {
+            	item.booms.forEach(function(frag) {
+                    if (!frag.dead) {
+                        frag.moveTo();
+                    } else {
+                    	counts++;
+                    }
+                });
+            	//回收对象
+	            if((counts === item.booms.length) && item.reuse) {
+	        		deadIndexs.push(index);
+	        		item.reuse = false;
+	        		item.booms.length = 0;
+	        	}
+            }
+        });
+        point.isClick = false;
+        raf(animate);
+    }
+
+    var Hongbao = function(x, y, width, angle, speedX, speedY){
+    	this.x = x;
+    	this.y = y;
+    	this.width = width;
+    	this.height = 2 * width;
+    	this.dead = false;
+    	this.reuse = true;
+    	this.alpha = 1;
+    	this.scale = 0;
+    	this.angle = angle;
+    	this.booms = [];
+    	this.speedX = speedX;
+    	this.speedY = speedY;
+    }
+
+    Hongbao.prototype = {
+    	_paint: function(){
+    		/*ctx.save();
+    		ctx.strokeStyle = 'rgba(255, 0, 0, 0)';
+    		ctx.fillStyle = 'rgb(255, 0, 0)';
+    		ctx.globalAlpha = this.alpha;
+
+    		ctx.beginPath();
+           	ctx.moveTo(this.x, this.y);
+           	ctx.lineTo(this.x + this.width * 0.8, this.y + this.width * 0.6);
+           	ctx.lineTo(this.x + this.width * 0.8 - this.height * 0.6 ,this.y + this.width * 0.6 + this.height * 0.8);
+           	ctx.lineTo(this.x - this.height * 0.6 ,this.y+ this.height * 0.8 )
+           	ctx.closePath();
+           	ctx.stroke();
+           	if(point.isClick) {
+           		if(ctx.isPointInPath(point.x, point.y)){
+           			console.log(point.x, point.y);
+           			point.isClick = false;
+           			this._clickBoom();
+           			this.dead = true;
+           		}
+           	}
+           	ctx.fill();
+           	ctx.font="12px Arial";
+           	ctx.fillStyle = 'rgb(255, 255, 0)';
+           	ctx.fillText("￥",this.x, this.y + (this.height - 12) /2);
+            ctx.restore();*/
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.scale(this.scale, this.scale);
+            ctx.rotate(this.angle * Math.PI / 180);
+            ctx.fillStyle = 'rgb(255, 0, 0)';
+    		ctx.globalAlpha = this.alpha;
+    		ctx.strokeStyle = "#ffd906";
+
+    		ctx.rect(0, 0, this.width, this.height);
+    		if(point.isClick) {
+           		if(ctx.isPointInPath(point.x, point.y)){
+           			//console.log(point.x, point.y);
+           			point.isClick = false;
+           			this._clickBoom();
+           			this.dead = true;
+           		}
+           	}
+           	ctx.fill();
+           	ctx.fillStyle = "#ffd906";
+			ctx.font = "20px Arial";
+			ctx.textAlign = "center";
+			ctx.textBaseline="middle";
+			ctx.fillText("￥", this.width /2, this.height / 2);
+
+			ctx.beginPath();
+			ctx.lineWidth = 5;
+			ctx.arc(this.width / 2, 0, this.width / 2, 0, Math.PI);
+			ctx.stroke();
+            ctx.restore();
+    	},
+    	_move: function(){
+    		this.x += this.speedX;
+    		this.y += this.speedY;
+
+    		/*if(this.alpha < 1) {
+    			this.alpha += 0.01;
+    		}*/
+
+    		if(this.scale < 1) {
+    			this.scale += 0.01;
+    		}
+
+    		if(this.x < 0 || this.x > W || this.y > H) {
+    			this.dead = true;
+    		} else {
+    			this._paint();
+    		}
+    	},
+    	_clickBoom: function(){
+    		var fragNum = getRandom(30, 100); //爆炸后的闪烁点
+            var style = getRandom(0, 10) >= 5 ? 1 : 2; //爆炸后的闪烁点颜色种类
+            var color;
+            if (style === 1) {
+                color = {
+                    a: parseInt(getRandom(128, 255)),
+                    b: parseInt(getRandom(128, 255)),
+                    c: parseInt(getRandom(128, 255))
+                }
+            }
+
+            var fanwei = parseInt(getRandom(200, 400)); //爆炸范围
+            for (var i = 0; i < fragNum; i++) {
+                if (style === 2) {
+                    color = {
+                        a: parseInt(getRandom(128, 255)),
+                        b: parseInt(getRandom(128, 255)),
+                        c: parseInt(getRandom(128, 255))
+                    }
+                }
+                var a = getRandom(-Math.PI, Math.PI);
+                var x = getRandom(0, fanwei) * Math.cos(a) + this.x;
+                var y = getRandom(0, fanwei) * Math.sin(a) + this.y;
+                var radius = getRandom(0, 2)
+                var frag = new Frag(this.x, this.y, radius, color, x, y);
+                this.booms.push(frag);
+            }
+    	}
+    }
+
+    var maxRadius = 20,
+    	stars = [];
+    function drawBg() {
+        for (var i = 0; i < W / 20; i++) {
+            var r = Math.random() * maxRadius;
+            var x = Math.random() * canvas.width;
+            var y = Math.random() * 2 * canvas.height - canvas.height;
+            var color = {
+                a: parseInt(getRandom(128, 255)),
+                b: parseInt(getRandom(128, 255)),
+                c: parseInt(getRandom(128, 255)),
+                d: Math.random()
+            };
+            var halo = false;
+            if(Math.random() > 0.9) {
+            	halo = true;
+            }
+            var star = new Star(x, y, r, color, halo);
+            stars.push(star);
+            star.paint()
+        }
+
+    }
+
+    var Star = function(x, y, r, color, halo) {
+        this.x = x;
+        this.y = y;
+        this.r = r;
+        this.color = color;
+        this.halo = halo;
+    }
+    Star.prototype = {
+        paint: function() {
+        	
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, 2 * Math.PI);
+            ctx.fillStyle = "rgba(" + this.color.a + ", " + this.color.b + ", " + this.color.c + ", 1)";
+            ctx.fill();
+            ctx.restore();
+            if(this.halo) {
+            	var index = 0;
+		        for (var i = 0; i < 10; i++) {
+		            ctx.save();
+		            ctx.beginPath();
+		            ctx.arc(this.x, this.y, this.r + index, 0, 2 * Math.PI);
+		            ctx.fillStyle = "rgba(" + this.color.a + ", " + this.color.b + ", " + this.color.c + ",0.05)";
+		            index += 2;
+		            ctx.fill();
+		            ctx.restore();
+		        }
+            }
+        }
+    }
+
+    var Frag = function(centerX, centerY, radius, color, tx, ty) {
+        this.tx = tx;
+        this.ty = ty;
+        this.x = centerX;
+        this.y = centerY;
+        this.dead = false;
+        this.centerX = centerX;
+        this.centerY = centerY;
+        this.radius = radius;
+        this.color = color;
+    }
+
+    Frag.prototype = {
+        paint: function() {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, 2 * Math.PI);
+            ctx.fillStyle = "rgba(" + this.color.a + "," + this.color.b + "," + this.color.c + ",1)";
+            ctx.fill()
+            ctx.restore();
+        },
+        moveTo: function(index) {
+            this.ty = this.ty + 0.3;
+            var dx = this.tx - this.x,
+                dy = this.ty - this.y;
+            this.x = Math.abs(dx) < 0.1 ? this.tx : (this.x + dx * 0.1);
+            this.y = Math.abs(dy) < 0.1 ? this.ty : (this.y + dy * 0.1);
+            if (dx === 0 && Math.abs(dy) <= 80) {
+                this.dead = true;
+            }
+            this.paint();
+        }
+    }
+
+    var colorBars = [];
+
+    var ColorBar = function(x, y, color, length, width, speed){
+    	this.x = x;
+    	this.y = y;
+    	this.color = color;
+    	this.length = length;
+    	this.width = width;
+    	this.speed = speed;
+    }
+
+    ColorBar.prototype = {
+    	paint: function() {
+    		ctx.save();
+    		ctx.strokeStyle = "rgba(" + this.color.a + "," + this.color.b + "," + this.color.c + ",1)";
+    		ctx.lineWidth = this.width;
+    		ctx.beginPath();
+    		ctx.moveTo(this.x, this.y);
+    		ctx.lineTo(this.x - this.length * 0.2, this.y + this.length * 0.8);
+            ctx.stroke();
+            ctx.restore();
+    	},
+    	moveTo: function() {
+    		this.x -= this.speed;
+    		this.y += this.speed;
+
+    		if(this.x < 0 || this.y > H) {
+    			if(Math.random() > 0.8) {
+    				this.x = getRandom(0, W);
+					this.y = 0;
+					this.length = getRandom(10, H / 10);
+					this.color = {
+		                a: parseInt(getRandom(128, 255)),
+		                b: parseInt(getRandom(128, 255)),
+		                c: parseInt(getRandom(128, 255)),
+		                d: Math.random()
+		            };
+		            this.width = getRandom(2, 10);
+		            this.speed = getRandom(2, 10);
+    			}
+    			
+    		} else {
+    			this.paint();
+    		}
+    	}
+    }
+
+    function drawColorBar() {
+    	for (var i = 0; i < W / 300; i++) {
+            var x = getRandom(0, W);
+    		var y = 0;
+    		var length = getRandom(10, H / 10);
+            var color = {
+                a: parseInt(getRandom(128, 255)),
+                b: parseInt(getRandom(128, 255)),
+                c: parseInt(getRandom(128, 255)),
+                d: Math.random()
+            };
+            var width = getRandom(2, 10);
+            var speed = getRandom(2, 10);
+            var colorBar = new ColorBar(x, y, color, length, width, speed);
+            colorBars.push(colorBar);
+            colorBar.paint()
+        }
+    }
+
+    initAnimation();
+    </script>
+</body>
+
+</html>
